@@ -14,6 +14,7 @@ class SimilarityScorer:
         if model not in self._embedding_models:
             raise ValueError(f"Model {model} not supported")
 
+        print('Loading gensim model', self._embedding_models[model])
         self.model = gensim_loader.load(self._embedding_models[model])
 
 

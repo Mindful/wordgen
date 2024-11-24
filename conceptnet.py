@@ -67,7 +67,7 @@ def fast_linecount(filename: Union[str, Path]) -> int:
     return linecount
 
 
-def load_conceptnet(path: Path):
+def load_conceptnet(path: Path) -> dict[str, dict[str, set[str]]]:
     conceptnet = defaultdict(lambda: defaultdict(set))
 
     requirements = [
