@@ -1,3 +1,4 @@
+from pathlib import Path
 from random import Random
 from typing import Iterable, Iterator
 
@@ -59,16 +60,27 @@ def get_base_concepts(random_state: Random, generator: WordGenerator, target_cou
 
 
 def main():
+    default_base_concepts = 3000
+    base_concepts_cache = Path('base_concepts.txt')
+
     parser = ArgumentParser()
     parser.add_argument('--seed', type=int, default=1337)
-    parser.add_argument('--base_concepts', type=int, default=3000)
+    parser.add_argument('--base_concepts', type=int, default=None)
     parser.add_argument('--target_combination_percentage', type=float, default=0.3)
 
     args = parser.parse_args()
-    random = Random(args.seed)
     generator = WordGenerator()
 
-    concepts = list(get_base_concepts(random, generator, args.base_concepts))
+    if args.base_concepts is None and base_concepts_cache.exists():
+        print('Loading base concepts from cache', base_concepts_cache, 'use --base_concepts to override')
+        with base_concepts_cache.open('r') as f:
+            concepts = [x.strip() for x in f.readlines()]
+    else:
+        concepts = list(get_base_concepts(Random(args.seed), generator, args.base_concepts or default_base_concepts))
+        print('Saving base concepts to cache', base_concepts_cache)
+        with base_concepts_cache.open('w') as f:
+            f.write('\n'.join(concepts))
+
     for concept in concepts:
         generator.add_base_word(concept)
 

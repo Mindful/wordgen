@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .idea/
-words.txt
+base_concepts.txt
 
 # C extensions
 *.so
