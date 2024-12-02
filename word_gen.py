@@ -136,6 +136,9 @@ class WordGenerator:
                         word1, score1 = rhs_words[rhs_idx]
                         word2, score2 = lhs_words[lhs_idx]
 
+                    if word1 == word2:
+                        continue
+
                     used_word_combos += 1
                     output.append(CompoundCombo(
                         base_word=word,
@@ -150,5 +153,3 @@ class WordGenerator:
                     ))
 
         return sorted(output, key=lambda x: x.cumulative_score, reverse=True)
-
-generator = WordGenerator()

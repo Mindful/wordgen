@@ -20,6 +20,10 @@ class CompoundCombo(BaseModel):
         # only include word1, word2 and cumulative score
         return f"Combo<{self.word1} {self.word2} ({self.cumulative_score:.2f})>"
 
+    def pretty(self):
+        # just show the combination of the two words
+        return f"({self.word1}+{self.word2})"
+
 
 
 
