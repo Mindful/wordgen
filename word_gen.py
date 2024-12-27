@@ -5,7 +5,7 @@ from itertools import combinations
 
 from conceptnet import load_conceptnet, RELATION_TYPES
 from lexical_similarity import SimilarityScorer
-from models import CompoundCombo
+from models import CompoundCombo, Node
 
 
 @dataclass
@@ -22,29 +22,9 @@ class WordGenerator:
         self.config = config
         print('Loading conceptnet from', conceptnet_path)
         self.conceptnet = load_conceptnet(conceptnet_path)
-
-        self.usable_bases = None
-        self.used_combinations = None
+        self.state = None
 
 
-    def add_base_word(self, word: str):
-        if self.usable_bases is None:
-            self.usable_bases = set()
-        self.usable_bases.add(word)
-
-    def remove_base_word(self, word: str):
-        assert self.usable_bases is not None, "No base words have been added yet"
-        self.usable_bases.remove(word)
-
-    def add_used_combination(self, lhs: str, rhs: str):
-        # assert sorted - if it's not sorted we might add the same combination twice
-        if self.used_combinations is None:
-            self.used_combinations = set()
-        self.used_combinations.add((lhs, rhs))
-
-    def remove_used_combination(self, lhs: str, rhs: str):
-        assert self.used_combinations is not None, "No combinations have been used yet"
-        self.used_combinations.remove((lhs, rhs))
 
     def _get_relation_dict(self, word: str) -> Optional[dict[str, set[str]]]:
         concept_key = f'/c/en/{word}'
@@ -58,7 +38,7 @@ class WordGenerator:
         # TODO: consider a better way to handle MWEs; we could average the embeddings or something
         filtered_cleaned = [
             concept for concept in cleaned_iter
-            if (self.usable_bases is None or concept in self.usable_bases)
+            if (self.state is None or concept in self.state.base_concepts)
             and concept != base_word
             and concept in self.scorer
         ]
@@ -102,7 +82,13 @@ class WordGenerator:
         )[:self.config.max_relation_combos]
 
 
+
+
     def generate_word_combinations(self, word: str) -> list[CompoundCombo]:
+        # TODO: use the counts of base concepts here if we have state set
+        # that is, the more a base concept has been used, the less likely it should be used again
+
+
         relations_dict = self._get_relation_dict(word)
         relation_combos = self._generate_relation_combinations(relations_dict)
 
@@ -136,12 +122,13 @@ class WordGenerator:
                         word1, score1 = rhs_words[rhs_idx]
                         word2, score2 = lhs_words[lhs_idx]
 
-                    if word1 == word2:
+                    already_used = (self.state is not None and (word1, word2) in self.state.used_combinations)
+                    if word1 == word2 or already_used:
                         continue
 
                     used_word_combos += 1
                     output.append(CompoundCombo(
-                        base_word=word,
+                        represented_concept=word,
                         word1=word1,
                         word2=word2,
                         relation1=lhs,

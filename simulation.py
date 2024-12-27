@@ -1,15 +1,14 @@
+from argparse import ArgumentParser
+from copy import deepcopy
 from pathlib import Path
 from random import Random
 from typing import Iterable, Iterator
 
+import spacy
 from tqdm import tqdm
-
-from lexical_similarity import SimilarityScorer
 from wordfreq import iter_wordlist
 
-from argparse import ArgumentParser
-import spacy
-
+from models import State, Node
 from word_gen import WordGenerator
 
 
@@ -58,6 +57,45 @@ def get_base_concepts(random_state: Random, generator: WordGenerator, target_cou
             break
 
 
+def traverse_to_leaf(state: State, root: Node, scoring_func: callable):
+    """Traverse to a leaf node, updating the state to what it should be at that leaf node"""
+
+    node = root
+    while node.children:
+        # we don't need to apply the first node, because it will be root
+        node = max(node.children, key=scoring_func)
+        node.apply(state)
+
+    return node
+
+
+def generate_children(generator: WordGenerator, node: Node, sample_j: int = 20, top_k: int = 5):
+    """Sample J possible target concepts from the current state, generate combinations for each, and then
+    use the top K combinations to create children nodes"""
+    possible_targets = generator.state.sample_concepts(sample_j)
+    all_candidates = []
+    for target in tqdm(possible_targets, desc='Generating children', leave=False):
+        target_candidates = generator.generate_word_combinations(target)
+        # take the highest scoring combination per word
+        all_candidates.append(target_candidates[0])
+
+    all_candidates.sort(key=lambda x: x.cumulative_score, reverse=True)
+    for candidate in all_candidates[:top_k]:
+        node.children.append(Node(node, candidate.represented_concept, candidate))
+
+
+
+
+def mcts(base_state: State, iterations: int, scoring_func: callable):
+    root = Node(None, None, None)
+
+    for _ in tqdm(range(iterations), desc='MCTS'):
+        state = deepcopy(base_state)  # TODO might not need to do this if we unpack it every time?
+        leaf = traverse_to_leaf(state, root, scoring_func)
+
+
+
+
 
 def main():
     default_base_concepts = 3000
@@ -81,8 +119,9 @@ def main():
         with base_concepts_cache.open('w') as f:
             f.write('\n'.join(concepts))
 
-    for concept in concepts:
-        generator.add_base_word(concept)
+
+    state = State(concepts, args.seed)
+    generator.state = state
 
     for concept in concepts[:20]:
         best_candidate = generator.generate_word_combinations(concept)
