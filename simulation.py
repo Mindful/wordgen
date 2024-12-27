@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 from copy import deepcopy
 from pathlib import Path
 from random import Random
-from typing import Iterable, Iterator
+from typing import Iterable, Iterator, Callable
 
 import spacy
 from tqdm import tqdm
@@ -10,6 +10,15 @@ from wordfreq import iter_wordlist
 
 from models import State, Node
 from word_gen import WordGenerator
+
+
+# TODO: SCORE THE STATE, NOT INDIVIDUAL CHOICES - this is how we have to do MCTS for it to make sense
+# (otherwise for example if we have dependent scores, somethign that scores highly early on may look better
+# than it really is because it lowers the score later)
+
+
+# TODO: it's theoretically possible to score even the word combinations lazily if we were willing to pick them totally
+# at random. MCTS could then be more explorative... but I'm not sure if this is a good idea.
 
 
 # Load SpaCy model
@@ -57,7 +66,7 @@ def get_base_concepts(random_state: Random, generator: WordGenerator, target_cou
             break
 
 
-def traverse_to_leaf(state: State, root: Node, scoring_func: callable):
+def traverse_to_leaf(state: State, root: Node, scoring_func: Callable):
     """Traverse to a leaf node, updating the state to what it should be at that leaf node"""
 
     node = root
@@ -69,9 +78,9 @@ def traverse_to_leaf(state: State, root: Node, scoring_func: callable):
     return node
 
 
-def generate_children(generator: WordGenerator, node: Node, sample_j: int = 20, top_k: int = 5):
+def generate_children(generator: WordGenerator, node: Node, sample_j: int = 20, top_k: int = 5) -> list[Node]:
     """Sample J possible target concepts from the current state, generate combinations for each, and then
-    use the top K combinations to create children nodes"""
+    return the top K highest scoring combinations"""
     possible_targets = generator.state.sample_concepts(sample_j)
     all_candidates = []
     for target in tqdm(possible_targets, desc='Generating children', leave=False):
@@ -80,18 +89,26 @@ def generate_children(generator: WordGenerator, node: Node, sample_j: int = 20, 
         all_candidates.append(target_candidates[0])
 
     all_candidates.sort(key=lambda x: x.cumulative_score, reverse=True)
-    for candidate in all_candidates[:top_k]:
-        node.children.append(Node(node, candidate.represented_concept, candidate))
+    return [Node(node, candidate.represented_concept, candidate) for candidate in all_candidates[:top_k]]
 
 
 
 
-def mcts(base_state: State, iterations: int, scoring_func: callable):
+def mcts(base_state: State, iterations: int, scoring_func: Callable):
     root = Node(None, None, None)
 
     for _ in tqdm(range(iterations), desc='MCTS'):
         state = deepcopy(base_state)  # TODO might not need to do this if we unpack it every time?
-        leaf = traverse_to_leaf(state, root, scoring_func)
+
+        # SELECTION
+        leaf = traverse_to_leaf(state, root, scoring_func)  # also updates the state
+
+        # EXPANSION
+        children = generate_children(generator, leaf)
+        leaf.children = children
+
+        # SIMULATION
+
 
 
 
@@ -122,13 +139,15 @@ def main():
 
     state = State(concepts, args.seed)
     generator.state = state
+    generator.config.score = False
 
     for concept in concepts[:20]:
         best_candidate = generator.generate_word_combinations(concept)
         if len(best_candidate) == 0:
             continue
         else:
-            print(concept, best_candidate[0].pretty())
+            best = best_candidate[0]
+            print(concept, best.pretty(), best.average_score)
 
 
 

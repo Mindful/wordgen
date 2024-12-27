@@ -1,9 +1,9 @@
 from dataclasses import field
-from functools import cache
 from random import Random
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Union, Callable
 from collections import Counter
 
+import numpy as np
 from pydantic.dataclasses import dataclass
 
 @dataclass(slots=True)
@@ -15,16 +15,31 @@ class CompoundCombo:
     relation1: str
     relation2: str
 
-    scores: dict[str, float]
+    relation_score: float
+    word_1_scorer: Union[Callable, float]
+    word_2_scorer: Union[Callable, float]
+
 
     @property
-    def cumulative_score(self) -> float:
-        return sum(self.scores.values()) / len(self.scores)
+    def average_score(self) -> float:
+        return (self.word_1_score + self.word_2_score + self.relation_score) / 3
+
+
+    @property
+    def word_1_score(self) -> float:
+        if callable(self.word_1_scorer):
+            self.word_1_scorer = self.word_1_scorer()
+        return self.word_1_scorer
+
+    @property
+    def word_2_score(self) -> float:
+        if callable(self.word_2_scorer):
+            self.word_2_scorer = self.word_2_scorer()
+        return self.word_2_scorer
 
 
     def __str__(self):
-        # only include word1, word2 and cumulative score
-        return f"Combo<{self.word1} {self.word2} ({self.cumulative_score:.2f})>"
+        return f"Combo<{self.word1} {self.word2} ({self.average_score:.2f})>"
 
     def pretty(self):
         # just show the combination of the two words
@@ -48,6 +63,14 @@ class State:
     def sample_concepts(self, n: int) -> list[str]:
         # TODO: this might be slow depending on the cost of set -> tuple
         return self.rand.sample(tuple(self.remaining_concepts), n)
+
+
+    def score(self) -> float:
+        # TODO: is the penalty not going to just obliterate the score?
+        word_scores = sum(x.average_score() for x in self.generations)
+        concept_usage_penalty = np.square(np.array([x for x in self.base_concepts.values()])).sum()
+        return word_scores  / concept_usage_penalty
+
 
 @dataclass(slots=True)
 class Node:

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Iterable
+from typing import Optional, Iterable, Callable, Union
 from itertools import combinations
 
 from conceptnet import load_conceptnet, RELATION_TYPES
@@ -12,6 +12,7 @@ from models import CompoundCombo, Node
 class WordGenerationConfig:
     max_relation_combos: int = 30
     max_word_combos: int = 100
+    score: bool = True
 
 
 class WordGenerator:
@@ -30,20 +31,21 @@ class WordGenerator:
         concept_key = f'/c/en/{word}'
         return self.conceptnet.get(concept_key)
 
-    def _clean_filter_rank_concepts(self, base_word: str, concepts: Iterable[str]) -> list[tuple[str, float]]:
+    def _clean_filter_rank_concepts(self, base_word: str, concepts: Iterable[str]) -> list[tuple[str, Union[float, Callable]]]:
         cleaned_iter = (
             concept[len('/c/en/'):] for concept in concepts
         )
 
-        # TODO: consider a better way to handle MWEs; we could average the embeddings or something
         filtered_cleaned = [
             concept for concept in cleaned_iter
             if (self.state is None or concept in self.state.base_concepts)
             and concept != base_word
-            and concept in self.scorer
         ]
-        scores = self.scorer.score_compounds_for_word(base_word, filtered_cleaned)
-        return sorted(zip(filtered_cleaned, scores), key=lambda x: x[1], reverse=True)
+        if self.config.score:
+            scores = self.scorer.bulk_score(base_word, filtered_cleaned)
+            return sorted(zip(filtered_cleaned, scores), key=lambda x: x[1], reverse=True)
+        else:
+            return [(concept, lambda: self.scorer.score(base_word, concept)) for concept in filtered_cleaned]
 
 
     @staticmethod
@@ -85,10 +87,6 @@ class WordGenerator:
 
 
     def generate_word_combinations(self, word: str) -> list[CompoundCombo]:
-        # TODO: use the counts of base concepts here if we have state set
-        # that is, the more a base concept has been used, the less likely it should be used again
-
-
         relations_dict = self._get_relation_dict(word)
         relation_combos = self._generate_relation_combinations(relations_dict)
 
@@ -96,8 +94,9 @@ class WordGenerator:
         words_for_relation = dict()
         used_word_combos = 0
         output = []
-        for lhs, rhs, score in relation_combos:
-            allocated_words = min(int(self.config.max_word_combos * (score / total)), self.config.max_word_combos - used_word_combos)
+        for lhs, rhs, relation_score in relation_combos:
+            allocated_words = min(int(self.config.max_word_combos * (relation_score / total)),
+                                  self.config.max_word_combos - used_word_combos)
             if allocated_words == 0:
                 break
 
@@ -133,10 +132,12 @@ class WordGenerator:
                         word2=word2,
                         relation1=lhs,
                         relation2=rhs,
-                        scores={
-                            'relation_combo': score,
-                            'word_combo': (score1 + score2) / 2
-                        }
+                        relation_score=relation_score,
+                        word_1_scorer=score1,
+                        word_2_scorer=score2
                     ))
 
-        return sorted(output, key=lambda x: x.cumulative_score, reverse=True)
+        if self.config.score:
+            return sorted(output, key=lambda x: x.average_score, reverse=True)
+        else:
+            return output
