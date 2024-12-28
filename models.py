@@ -4,7 +4,7 @@ from typing import Optional, Iterable, Union, Callable
 from collections import Counter
 
 import numpy as np
-from pydantic.dataclasses import dataclass
+from dataclasses import dataclass
 
 @dataclass(slots=True)
 class CompoundCombo:
@@ -18,6 +18,10 @@ class CompoundCombo:
     relation_score: float
     word_1_scorer: Union[Callable, float]
     word_2_scorer: Union[Callable, float]
+
+
+    def __hash__(self):
+        return hash((self.word1, self.word2))
 
 
     @property
@@ -52,7 +56,7 @@ class State:
     def __init__(self, base_concepts: Iterable[str], target_percentage: float, seed: int):
         assert 0 < target_percentage < 1
 
-        self.remaining_concepts = set()
+        self.remaining_concepts = set(base_concepts)
         self.generations = set()
         # concept: usage_count
         self.base_concepts = Counter({
@@ -76,7 +80,7 @@ class State:
 
     def score(self) -> float:
         # TODO: is the penalty not going to just obliterate the score?
-        word_scores = sum(x.average_score() for x in self.generations)
+        word_scores = sum(x.average_score for x in self.generations)
         concept_usage_penalty = np.square(np.array([x for x in self.base_concepts.values()])).sum()
         return word_scores  / concept_usage_penalty
 
@@ -92,6 +96,7 @@ class Node:
 
     def apply(self, state: State):
         state.remaining_concepts.remove(self.processed_concept)
+        assert self.generation not in state.generations
         state.generations.add(self.generation)
         state.base_concepts[self.generation.word1] += 1
         state.base_concepts[self.generation.word2] += 1
@@ -99,6 +104,7 @@ class Node:
 
     def undo(self, state: State):
         state.remaining_concepts.add(self.processed_concept)
+        assert self.generation in state.generations
         state.generations.remove(self.generation)
         state.base_concepts[self.generation.word1] -= 1
         state.base_concepts[self.generation.word2] -= 1

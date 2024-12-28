@@ -89,9 +89,14 @@ class MCTS:
 
         return concepts
 
-    def __init__(self, seed: int, node_score: Callable = ucb, base_concepts: Optional[int] = None, target_percentage: float = 0.3):
+    def __init__(self, seed: int,
+                 node_score: Callable = ucb,
+                 base_concepts: Optional[int] = None,
+                 target_percentage: float = 0.3,
+                 simulation_depth: Optional[int] = 500):
         self.seed = seed
         self.node_score = node_score
+        self.simulation_depth = simulation_depth
 
         concepts = self._load_base_concepts(base_concepts)
         self.base_state = State(concepts, target_percentage, seed)
@@ -110,8 +115,10 @@ class MCTS:
 
         return node
 
-    def _simulate(self, node: Node, state: State, max_depth: Optional[int] = None) -> float:
+    def _simulate(self, node: Node, state: State) -> float:
         depth = 0
+        max_depth = self.simulation_depth
+        progress = tqdm(total=max_depth, desc='Simulation', leave=False)
         while (max_depth is None or depth < max_depth) and not state.is_terminal:
             children = self._generate_children(node, state)
             # random in style of MCTS
@@ -119,6 +126,7 @@ class MCTS:
             node = state.rand.choice(children)
             node.apply(state)
             depth += 1
+            progress.update(1)
 
         return state.score()
 
@@ -127,13 +135,15 @@ class MCTS:
         return the top K highest scoring combinations"""
         possible_targets = state.sample_concepts(sample_j)
         all_candidates = []
-        for target in tqdm(possible_targets, desc='Generating children', leave=False):
+        for target in possible_targets:
             target_candidates = self.generator.generate_word_combinations(target)
             # take the highest scoring combination per word
-            all_candidates.append(target_candidates[0])
+            if len(target_candidates) != 0:
+                all_candidates.append(target_candidates[0])
 
-        all_candidates.sort(key=lambda x: x.cumulative_score, reverse=True)
-        return [Node(node, candidate.represented_concept, candidate) for candidate in all_candidates[:top_k]]
+        output = [Node(node, candidate.represented_concept, candidate) for candidate in all_candidates[:top_k]]
+        assert len(output) != 0
+        return output
 
     @staticmethod
     def _backpropagate(node: Node, value: float):

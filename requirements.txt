@@ -1,7 +1,6 @@
 tqdm
 numpy
 gensim
-pydantic
 nltk
 wordfreq
 spacy

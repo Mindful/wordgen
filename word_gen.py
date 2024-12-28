@@ -89,6 +89,9 @@ class WordGenerator:
 
     def generate_word_combinations(self, word: str) -> list[CompoundCombo]:
         relations_dict = self._get_relation_dict(word)
+        if not relations_dict:
+            return []
+
         relation_combos = self._generate_relation_combinations(relations_dict)
 
         total = sum(x[2] for x in relation_combos)
