@@ -60,6 +60,11 @@ class State:
         self.rand = Random(seed)
 
 
+    @property
+    def is_terminal(self):
+        return not self.remaining_concepts
+
+
     def sample_concepts(self, n: int) -> list[str]:
         # TODO: this might be slow depending on the cost of set -> tuple
         return self.rand.sample(tuple(self.remaining_concepts), n)

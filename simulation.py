@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 from copy import deepcopy
 from pathlib import Path
 from random import Random
-from typing import Iterable, Iterator, Callable
+from typing import Iterable, Iterator, Callable, Optional
 
 import spacy
 from tqdm import tqdm
@@ -92,9 +92,37 @@ def generate_children(generator: WordGenerator, node: Node, sample_j: int = 20, 
     return [Node(node, candidate.represented_concept, candidate) for candidate in all_candidates[:top_k]]
 
 
+def simulate(node: Node, state: State, max_depth: Optional[int] = None) -> float:
+    depth = 0
+    while (max_depth is None or depth < max_depth) and not state.is_terminal:
+        children = generate_children(generator, node)
+        # random in style of MCTS
+        # TODO: we could also try some kind of weighted random by scores if we had them
+        node = state.rand.choice(children)
+        node.apply(state)
+        depth += 1
+
+    return state.score()
 
 
-def mcts(base_state: State, iterations: int, scoring_func: Callable):
+
+def backpropagate(node: Node, value: float):
+    while node is not None:
+        node.visits += 1
+        node.value += value
+        node = node.parent
+
+
+def greedy_rollout(node: Node, state: State) -> State:
+    while not state.is_terminal:
+        children = generate_children(generator, node)
+        node = children[0]
+        node.apply(state)
+
+    return state
+
+
+def mcts(base_state: State, iterations: int, scoring_func: Callable) -> State:
     root = Node(None, None, None)
 
     for _ in tqdm(range(iterations), desc='MCTS'):
@@ -108,9 +136,17 @@ def mcts(base_state: State, iterations: int, scoring_func: Callable):
         leaf.children = children
 
         # SIMULATION
+        value = simulate(leaf, state)
+
+        # BACKPROPAGATION
+        backpropagate(leaf, value)
+
+    # GREEDY ROLLOUT
+    leaf = traverse_to_leaf(base_state, root, scoring_func)
+    final_state = greedy_rollout(leaf, base_state)
 
 
-
+    return final_state
 
 
 
