@@ -13,7 +13,7 @@ class SimilarityScorer:
         'word2vec': 'word2vec-google-news-300',
     }
 
-    def __init__(self, model: str = 'word2vec'):
+    def __init__(self, model):
         if model not in self._embedding_models:
             raise ValueError(f"Model {model} not supported")
 
@@ -38,3 +38,7 @@ class SimilarityScorer:
             self.model.similarity(word, candidate) if candidate in self else self.MISSING_SCORE
             for candidate in candidates
         ])
+
+class W2VecSimilarityScorer(SimilarityScorer):
+    def __init__(self):
+        super().__init__('word2vec')

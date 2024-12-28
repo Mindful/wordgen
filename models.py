@@ -47,9 +47,11 @@ class CompoundCombo:
 
 
 class State:
-    __slots__ = ('remaining_concepts', 'generations', 'base_concepts', 'used_combinations', 'rand')
+    __slots__ = ('remaining_concepts', 'generations', 'base_concepts', 'used_combinations', 'rand', 'target_count')
 
-    def __init__(self, base_concepts: Iterable[str], seed: int):
+    def __init__(self, base_concepts: Iterable[str], target_percentage: float, seed: int):
+        assert 0 < target_percentage < 1
+
         self.remaining_concepts = set()
         self.generations = set()
         # concept: usage_count
@@ -58,11 +60,13 @@ class State:
         })
         self.used_combinations = set()
         self.rand = Random(seed)
+        self.target_count = int(len(self.base_concepts) * target_percentage)
 
 
     @property
     def is_terminal(self):
-        return not self.remaining_concepts
+        assert len(self.generations) <= self.target_count
+        return len(self.generations) == self.target_count
 
 
     def sample_concepts(self, n: int) -> list[str]:

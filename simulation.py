@@ -9,16 +9,11 @@ from tqdm import tqdm
 from wordfreq import iter_wordlist
 
 from models import State, Node
-from word_gen import WordGenerator
+from word_gen import WordGenerator, WordGenerationConfig
+import math
 
 
-# TODO: SCORE THE STATE, NOT INDIVIDUAL CHOICES - this is how we have to do MCTS for it to make sense
-# (otherwise for example if we have dependent scores, somethign that scores highly early on may look better
-# than it really is because it lowers the score later)
-
-
-# TODO: it's theoretically possible to score even the word combinations lazily if we were willing to pick them totally
-# at random. MCTS could then be more explorative... but I'm not sure if this is a good idea.
+BASE_CONCEPTS_CACHE = Path('base_concepts.txt')
 
 
 # Load SpaCy model
@@ -66,126 +61,135 @@ def get_base_concepts(random_state: Random, generator: WordGenerator, target_cou
             break
 
 
-def traverse_to_leaf(state: State, root: Node, scoring_func: Callable):
-    """Traverse to a leaf node, updating the state to what it should be at that leaf node"""
-
-    node = root
-    while node.children:
-        # we don't need to apply the first node, because it will be root
-        node = max(node.children, key=scoring_func)
-        node.apply(state)
-
-    return node
 
 
-def generate_children(generator: WordGenerator, node: Node, sample_j: int = 20, top_k: int = 5) -> list[Node]:
-    """Sample J possible target concepts from the current state, generate combinations for each, and then
-    return the top K highest scoring combinations"""
-    possible_targets = generator.state.sample_concepts(sample_j)
-    all_candidates = []
-    for target in tqdm(possible_targets, desc='Generating children', leave=False):
-        target_candidates = generator.generate_word_combinations(target)
-        # take the highest scoring combination per word
-        all_candidates.append(target_candidates[0])
+def ucb(node: Node) -> float:
+    exploration_weight = 1.41
 
-    all_candidates.sort(key=lambda x: x.cumulative_score, reverse=True)
-    return [Node(node, candidate.represented_concept, candidate) for candidate in all_candidates[:top_k]]
-
-
-def simulate(node: Node, state: State, max_depth: Optional[int] = None) -> float:
-    depth = 0
-    while (max_depth is None or depth < max_depth) and not state.is_terminal:
-        children = generate_children(generator, node)
-        # random in style of MCTS
-        # TODO: we could also try some kind of weighted random by scores if we had them
-        node = state.rand.choice(children)
-        node.apply(state)
-        depth += 1
-
-    return state.score()
+    if node.visits == 0:
+        return float('inf')  # Favor unexplored nodes
+    exploitation = node.value / node.visits
+    exploration = exploration_weight * math.sqrt(math.log(node.parent.visits) / node.visits)
+    return exploitation + exploration
 
 
 
-def backpropagate(node: Node, value: float):
-    while node is not None:
-        node.visits += 1
-        node.value += value
-        node = node.parent
+class MCTS:
+
+    def _load_base_concepts(self, base_concepts: Optional[int]) -> list[str]:
+        if base_concepts is None and BASE_CONCEPTS_CACHE.exists():
+            print('Loading base concepts from cache', BASE_CONCEPTS_CACHE, 'use --base_concepts to override')
+            with BASE_CONCEPTS_CACHE.open('r') as f:
+                concepts = [x.strip() for x in f.readlines()]
+        else:
+            concepts = list(get_base_concepts(Random(self.seed), self.generator, base_concepts))
+            print('Saving base concepts to cache', BASE_CONCEPTS_CACHE)
+            with BASE_CONCEPTS_CACHE.open('w') as f:
+                f.write('\n'.join(concepts))
+
+        return concepts
+
+    def __init__(self, seed: int, node_score: Callable = ucb, base_concepts: Optional[int] = None, target_percentage: float = 0.3):
+        self.seed = seed
+        self.node_score = node_score
+
+        concepts = self._load_base_concepts(base_concepts)
+        self.base_state = State(concepts, target_percentage, seed)
+
+        self.generator = WordGenerator(WordGenerationConfig())
 
 
-def greedy_rollout(node: Node, state: State) -> State:
-    while not state.is_terminal:
-        children = generate_children(generator, node)
-        node = children[0]
-        node.apply(state)
+    def _traverse_to_leaf(self, root: Node, state: State):
+        """Traverse to a leaf node, updating the state to what it should be at that leaf node"""
 
-    return state
+        node = root
+        while node.children:
+            # we don't need to apply the first node, because it will be root
+            node = max(node.children, key=self.node_score)
+            node.apply(state)
 
+        return node
 
-def mcts(base_state: State, iterations: int, scoring_func: Callable) -> State:
-    root = Node(None, None, None)
+    def _simulate(self, node: Node, state: State, max_depth: Optional[int] = None) -> float:
+        depth = 0
+        while (max_depth is None or depth < max_depth) and not state.is_terminal:
+            children = self._generate_children(node, state)
+            # random in style of MCTS
+            # TODO: we could also try some kind of weighted random by scores if we had them
+            node = state.rand.choice(children)
+            node.apply(state)
+            depth += 1
 
-    for _ in tqdm(range(iterations), desc='MCTS'):
-        state = deepcopy(base_state)  # TODO might not need to do this if we unpack it every time?
+        return state.score()
 
-        # SELECTION
-        leaf = traverse_to_leaf(state, root, scoring_func)  # also updates the state
+    def _generate_children(self, node: Node, state: State, sample_j: int = 20, top_k: int = 5) -> list[Node]:
+        """Sample J possible target concepts from the current state, generate combinations for each, and then
+        return the top K highest scoring combinations"""
+        possible_targets = state.sample_concepts(sample_j)
+        all_candidates = []
+        for target in tqdm(possible_targets, desc='Generating children', leave=False):
+            target_candidates = self.generator.generate_word_combinations(target)
+            # take the highest scoring combination per word
+            all_candidates.append(target_candidates[0])
 
-        # EXPANSION
-        children = generate_children(generator, leaf)
-        leaf.children = children
+        all_candidates.sort(key=lambda x: x.cumulative_score, reverse=True)
+        return [Node(node, candidate.represented_concept, candidate) for candidate in all_candidates[:top_k]]
 
-        # SIMULATION
-        value = simulate(leaf, state)
+    @staticmethod
+    def _backpropagate(node: Node, value: float):
+        while node is not None:
+            node.visits += 1
+            node.value += value
+            node = node.parent
 
-        # BACKPROPAGATION
-        backpropagate(leaf, value)
+    def _greedy_rollout(self, node: Node, state: State) -> State:
+        while not state.is_terminal:
+            children = self._generate_children(node, state)
+            node = children[0]
+            node.apply(state)
 
-    # GREEDY ROLLOUT
-    leaf = traverse_to_leaf(base_state, root, scoring_func)
-    final_state = greedy_rollout(leaf, base_state)
+        return state
 
+    def run(self, iterations: int) -> State:
+        root = Node(None, None, None)
 
-    return final_state
+        for _ in tqdm(range(iterations), desc='MCTS'):
+            # operation under the assumption that re-copying the base state is a cheaper operation than
+            # saving all our mutations and undoing them
+            state = deepcopy(self.base_state)
+
+            # SELECTION
+            leaf = self._traverse_to_leaf(root, state)  # also updates the state
+
+            # EXPANSION
+            children = self._generate_children(leaf, state)
+            leaf.children = children
+
+            # SIMULATION
+            value = self._simulate(leaf, state)
+
+            # BACKPROPAGATION
+            self._backpropagate(leaf, value)
+
+        # GREEDY ROLLOUT
+        final_state = deepcopy(self.base_state)
+        leaf = self._traverse_to_leaf(root, final_state)
+        final_state = self._greedy_rollout(leaf, final_state)
+
+        return final_state
+
 
 
 
 def main():
-    default_base_concepts = 3000
-    base_concepts_cache = Path('base_concepts.txt')
-
     parser = ArgumentParser()
     parser.add_argument('--seed', type=int, default=1337)
     parser.add_argument('--base_concepts', type=int, default=None)
-    parser.add_argument('--target_combination_percentage', type=float, default=0.3)
 
     args = parser.parse_args()
-    generator = WordGenerator()
 
-    if args.base_concepts is None and base_concepts_cache.exists():
-        print('Loading base concepts from cache', base_concepts_cache, 'use --base_concepts to override')
-        with base_concepts_cache.open('r') as f:
-            concepts = [x.strip() for x in f.readlines()]
-    else:
-        concepts = list(get_base_concepts(Random(args.seed), generator, args.base_concepts or default_base_concepts))
-        print('Saving base concepts to cache', base_concepts_cache)
-        with base_concepts_cache.open('w') as f:
-            f.write('\n'.join(concepts))
-
-
-    state = State(concepts, args.seed)
-    generator.state = state
-    generator.config.score = False
-
-    for concept in concepts[:20]:
-        best_candidate = generator.generate_word_combinations(concept)
-        if len(best_candidate) == 0:
-            continue
-        else:
-            best = best_candidate[0]
-            print(concept, best.pretty(), best.average_score)
-
-
+    mcts = MCTS(args.seed)
+    final_state = mcts.run(1000)
 
 
 

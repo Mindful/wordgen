@@ -4,26 +4,27 @@ from typing import Optional, Iterable, Callable, Union
 from itertools import combinations
 
 from conceptnet import load_conceptnet, RELATION_TYPES
-from lexical_similarity import SimilarityScorer
-from models import CompoundCombo, Node
+from lexical_similarity import W2VecSimilarityScorer
+from models import CompoundCombo, Node, State
 
 
 @dataclass
 class WordGenerationConfig:
     max_relation_combos: int = 30
     max_word_combos: int = 100
-    score: bool = True
+    score: bool = False
+    conceptnet_path: Path = Path('/home/josh/data/conceptnet')
+    scorer: type = W2VecSimilarityScorer
+
 
 
 class WordGenerator:
-    def __init__(self, scorer: SimilarityScorer = SimilarityScorer(),
-                 conceptnet_path: Path = Path('/home/josh/data/conceptnet'),
-                 config: WordGenerationConfig = WordGenerationConfig()):
-        self.scorer = scorer
+    def __init__(self, config: WordGenerationConfig = WordGenerationConfig(), state: Optional[State] = None):
         self.config = config
-        print('Loading conceptnet from', conceptnet_path)
-        self.conceptnet = load_conceptnet(conceptnet_path)
-        self.state = None
+        self.scorer = self.config.scorer()
+        print('Loading conceptnet from', config.conceptnet_path)
+        self.conceptnet = load_conceptnet(config.conceptnet_path)
+        self.state = state
 
 
 
