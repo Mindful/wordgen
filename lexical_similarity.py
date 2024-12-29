@@ -30,14 +30,14 @@ class SimilarityScorer:
 
     def score(self, lhs: str, rhs: str) -> float:
         assert lhs in self.model
-        return self.model.similarity(lhs, rhs) if rhs in self else self.MISSING_SCORE
+        return float(self.model.similarity(lhs, rhs)) if rhs in self else self.MISSING_SCORE
 
-    def bulk_score(self, word: str, candidates: list[str]) -> np.ndarray:
+    def bulk_score(self, word: str, candidates: list[str]) -> list[float]:
         assert word in self.model
-        return np.array([
-            self.model.similarity(word, candidate) if candidate in self else self.MISSING_SCORE
+        return [
+            float(self.model.similarity(word, candidate)) if candidate in self else self.MISSING_SCORE
             for candidate in candidates
-        ])
+        ]
 
 class W2VecSimilarityScorer(SimilarityScorer):
     def __init__(self):

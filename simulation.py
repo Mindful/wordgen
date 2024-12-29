@@ -167,6 +167,7 @@ class MCTS:
             # operation under the assumption that re-copying the base state is a cheaper operation than
             # saving all our mutations and undoing them
             state = deepcopy(self.base_state)
+            self.generator.state = state
 
             # SELECTION
             leaf = self._traverse_to_leaf(root, state)  # also updates the state
@@ -183,6 +184,7 @@ class MCTS:
 
         # GREEDY ROLLOUT
         final_state = deepcopy(self.base_state)
+        self.generator.state = final_state
         leaf = self._traverse_to_leaf(root, final_state)
         final_state = self._greedy_rollout(leaf, final_state)
 
@@ -195,11 +197,19 @@ def main():
     parser = ArgumentParser()
     parser.add_argument('--seed', type=int, default=1337)
     parser.add_argument('--base_concepts', type=int, default=None)
+    parser.add_argument('--iterations', type=int, default=1000)
+    parser.add_argument('--output', type=Path, default=Path('results'))
 
     args = parser.parse_args()
+    assert not args.output.exists(), 'Output directory already exists'
 
     mcts = MCTS(args.seed)
-    final_state = mcts.run(1000)
+    print('Init with', len(mcts.base_state.base_concepts), 'concepts and a target of', mcts.base_state.target_count, 'generations')
+    final_state = mcts.run(args.iterations)
+
+    print('Final score of', final_state.score())
+    print('Writing results to', args.output)
+    final_state.output(args.output)
 
 
 

@@ -1,4 +1,6 @@
-from dataclasses import field
+import json
+from dataclasses import field, asdict
+from pathlib import Path
 from random import Random
 from typing import Optional, Iterable, Union, Callable
 from collections import Counter
@@ -84,6 +86,18 @@ class State:
         concept_usage_penalty = np.square(np.array([x for x in self.base_concepts.values()])).sum()
         return word_scores  / concept_usage_penalty
 
+    def output(self, path: Path):
+        path.mkdir()
+        with open(path / 'concepts.txt', 'w') as f:
+            f.write('\n'.join(self.base_concepts.keys()))
+
+        with open(path / 'generations.jsonl', 'w') as f:
+            sorted_generations = sorted(self.generations, key=lambda x: x.average_score, reverse=True)
+            f.write('\n'.join(json.dumps(asdict(x)) for x in sorted_generations))
+
+        with open(path / 'generations_simple.txt', 'w'):
+            f.write('\n'.join(f'{x.represented_concept} {x.pretty()}' for x in sorted_generations))
+
 
 @dataclass(slots=True)
 class Node:
@@ -98,6 +112,8 @@ class Node:
         state.remaining_concepts.remove(self.processed_concept)
         assert self.generation not in state.generations
         state.generations.add(self.generation)
+        assert self.generation.word1 in state.base_concepts
+        assert self.generation.word2 in state.base_concepts
         state.base_concepts[self.generation.word1] += 1
         state.base_concepts[self.generation.word2] += 1
         state.used_combinations.add((self.generation.word1, self.generation.word2))
@@ -106,6 +122,8 @@ class Node:
         state.remaining_concepts.add(self.processed_concept)
         assert self.generation in state.generations
         state.generations.remove(self.generation)
+        assert self.generation.word1 in state.base_concepts
+        assert self.generation.word2 in state.base_concepts
         state.base_concepts[self.generation.word1] -= 1
         state.base_concepts[self.generation.word2] -= 1
         state.used_combinations.remove((self.generation.word1, self.generation.word2))
