@@ -2,7 +2,7 @@ import json
 from dataclasses import field, asdict
 from pathlib import Path
 from random import Random
-from typing import Optional, Iterable, Union, Callable
+from typing import Optional, Iterable, Union, Callable, Iterator
 from collections import Counter
 
 import numpy as np
@@ -74,10 +74,13 @@ class State:
         assert len(self.generations) <= self.target_count
         return len(self.generations) == self.target_count
 
-
-    def sample_concepts(self, n: int) -> list[str]:
+    def random_iter_concepts(self) -> Iterator[str]:
         # TODO: this might be slow depending on the cost of set -> tuple
-        return self.rand.sample(tuple(self.remaining_concepts), n)
+        concepts = tuple(self.remaining_concepts)
+        indices = list(range(len(concepts)))
+        self.rand.shuffle(indices)
+        for idx in indices:
+            yield concepts[idx]
 
 
     def score(self) -> float:

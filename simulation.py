@@ -1,8 +1,9 @@
 from argparse import ArgumentParser
+from collections import deque
 from copy import deepcopy
 from pathlib import Path
 from random import Random
-from typing import Iterable, Iterator, Callable, Optional
+from typing import Iterable, Iterator, Callable, Optional, TypeVar
 
 import spacy
 from tqdm import tqdm
@@ -121,8 +122,9 @@ class MCTS:
         progress = tqdm(total=max_depth, desc='Simulation', leave=False)
         while (max_depth is None or depth < max_depth) and not state.is_terminal:
             children = self._generate_children(node, state)
-            # random in style of MCTS
-            # TODO: we could also try some kind of weighted random by scores if we had them
+            if len(children) == 0:
+                return -float('inf')
+
             node = state.rand.choice(children)
             node.apply(state)
             depth += 1
@@ -130,19 +132,47 @@ class MCTS:
 
         return state.score()
 
-    def _generate_children(self, node: Node, state: State, sample_j: int = 20, top_k: int = 5) -> list[Node]:
-        """Sample J possible target concepts from the current state, generate combinations for each, and then
-        return the top K highest scoring combinations"""
-        possible_targets = state.sample_concepts(sample_j)
-        all_candidates = []
-        for target in possible_targets:
-            target_candidates = self.generator.generate_word_combinations(target)
-            # take the highest scoring combination per word
-            if len(target_candidates) != 0:
-                all_candidates.append(target_candidates[0])
+    def  _expand(self, node: Node, state: State) -> bool:
+        children = self._generate_children(node, state)
+        if len(children) == 0:
+            node.value = float('inf')
+            return False
 
-        output = [Node(node, candidate.represented_concept, candidate) for candidate in all_candidates[:top_k]]
-        assert len(output) != 0
+        node.children = children
+        return True
+
+    def _generate_children(self, node: Node, state: State, count: int = 5) -> list[Node]:
+        """Generate _count_ random children"""
+        candidates = []
+        random_iter = state.random_iter_concepts()
+
+        backup_candidates = deque()
+        while len(candidates) < count:
+            target = next(random_iter, None)
+            if target is None:
+                break
+
+            target_candidates = self.generator.generate_word_combinations(target)
+            if len(target_candidates) != 0:
+                candidates.append(target_candidates[0])
+                if len(target_candidates) > 1:
+                    backup_candidates.append(target_candidates[1:])
+
+        output = [Node(node, candidate.represented_concept, candidate) for candidate in candidates]
+        while len(output) < count and len(backup_candidates) != 0:
+            # take the first item from each backup list until we have enough
+
+            cur_backup = backup_candidates.popleft()
+            if not isinstance(cur_backup, deque):
+                # do this lazily to avoid unnecessary copying
+                cur_backup = deque(cur_backup)
+
+            cur_candidate = cur_backup.popleft()
+            if len(cur_backup) != 0:
+                backup_candidates.append(cur_backup)
+
+            output.append(Node(node, cur_candidate.represented_concept, cur_candidate))
+
         return output
 
     @staticmethod
@@ -155,6 +185,8 @@ class MCTS:
     def _greedy_rollout(self, node: Node, state: State) -> State:
         while not state.is_terminal:
             children = self._generate_children(node, state)
+            # TODO: we need to be able to deal with the case where we can't generate any children
+            # for the greedy rollout.... maybe set this child's value to -inf and go back up?
             node = children[0]
             node.apply(state)
 
@@ -173,11 +205,25 @@ class MCTS:
             leaf = self._traverse_to_leaf(root, state)  # also updates the state
 
             # EXPANSION
-            children = self._generate_children(leaf, state)
-            leaf.children = children
+            can_progress = self._expand(leaf, state)
+            if not can_progress:
+                # TODO: log warning about this?
+                continue
 
             # SIMULATION
-            value = self._simulate(leaf, state)
+            retries = 0
+            value = -float('inf')
+
+            while value == -float('inf') and retries < 5:
+                # simulation can fail due to being unable to generate any children, so we retry
+                # it a few times before giving up if necessary
+                value = self._simulate(leaf, state)
+                retries += 1
+
+            if value == -float('inf'):
+                # TODO: log a warning here?
+                # don't backprop if we failed to simulate
+                continue
 
             # BACKPROPAGATION
             self._backpropagate(leaf, value)
