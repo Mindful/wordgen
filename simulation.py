@@ -185,8 +185,10 @@ class MCTS:
     def _greedy_rollout(self, node: Node, state: State) -> State:
         while not state.is_terminal:
             children = self._generate_children(node, state)
-            # TODO: we need to be able to deal with the case where we can't generate any children
-            # for the greedy rollout.... maybe set this child's value to -inf and go back up?
+            if len(children) == 0:
+                # we can't progress any further
+                # TODO: try and deal with this by somehow backtracking?
+                break
             node = children[0]
             node.apply(state)
 
@@ -252,9 +254,11 @@ def main():
     mcts = MCTS(args.seed)
     print('Init with', len(mcts.base_state.base_concepts), 'concepts and a target of', mcts.base_state.target_count, 'generations')
     final_state = mcts.run(args.iterations)
+    if not final_state.is_terminal:
+        print('Failed to reach terminal state')
 
     print('Final score of', final_state.score())
-    print('Writing results to', args.output)
+    print('Writing results to', f'{args.output}/')
     final_state.output(args.output)
 
 

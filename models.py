@@ -98,7 +98,7 @@ class State:
             sorted_generations = sorted(self.generations, key=lambda x: x.average_score, reverse=True)
             f.write('\n'.join(json.dumps(asdict(x)) for x in sorted_generations))
 
-        with open(path / 'generations_simple.txt', 'w'):
+        with open(path / 'generations_simple.txt', 'w') as f:
             f.write('\n'.join(f'{x.represented_concept} {x.pretty()}' for x in sorted_generations))
 
 
